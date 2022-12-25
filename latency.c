@@ -27,10 +27,8 @@ int generate_file()
     return 0;
 }
 
-int main()
+int fcntl_lock(long *sec, long *nsec)
 {
-    generate_file();
-    
     int fd = open("file.txt", O_RDONLY);
     struct timespec *tv  = mmap(NULL, sizeof(struct timespec), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, 0, 0);
     struct timespec *tv2 = mmap(NULL, sizeof(struct timespec), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, 0, 0);
@@ -69,8 +67,6 @@ int main()
                 exit(1);
             }
         }
-
-        return 0;
     }
     else
     {
@@ -79,14 +75,30 @@ int main()
         clock_gettime(CLOCK_REALTIME, tv2);
         clock_settime(CLOCK_REALTIME, tv2); // end time measure
         
-        long sec = (long)tv2->tv_sec-(long)tv->tv_sec;
-        long nsec = (tv->tv_nsec > tv2->tv_nsec) ? 999999999-(long)tv->tv_nsec+(long)tv2->tv_nsec : (long)tv2->tv_nsec-(long)tv->tv_nsec;
+        if (tv->tv_nsec > tv2->tv_nsec)
+        {
+            *sec += ((long)tv2->tv_sec-(long)tv->tv_sec) - 1;
+            *nsec += 999999999-(long)tv->tv_nsec+(long)tv2->tv_nsec;
+        }
+        else
+        {
+            *sec += (long)tv2->tv_sec-(long)tv->tv_sec;
+            *nsec += (long)tv2->tv_nsec-(long)tv->tv_nsec;
+        }
         
-        printf("Wake a task using signal - %ld.%ld\n", sec, nsec);
         close(fd);
         munmap(tv,  sizeof(struct timespec));
         munmap(tv2, sizeof(struct timespec));
     }
+    return 0;
+}
+
+int main()
+{
+    long sec = 0, nsec = 0;
+    generate_file();
+    fcntl_lock(&sec, &nsec);
+    printf("Wake a task using signal - %ld.%ld\n", sec, nsec);
     
     return 0;
 }
