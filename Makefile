@@ -9,7 +9,7 @@ all: latency
 # 	rm socket clisocket servsocket
 
 latency: latency.o
-	$(CC) latency.o $(FLAGS) -o latency
+	$(CC) latency.o $(FLAGS) -lpthread -o latency
 
 latency.o: latency.c
 	$(CC) $(FLAGS) -c latency.c
