@@ -27,9 +27,9 @@ int generate_file()
     return 0;
 }
 
-int fcntl_lock(long *sec, long *nsec)
+int fcntl_lock(char *path, long *sec, long *nsec) // lock
 {
-    int fd = open("file.txt", O_RDONLY);
+    int fd = open(path, O_RDONLY);
     struct timespec *tv  = mmap(NULL, sizeof(struct timespec), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, 0, 0);
     struct timespec *tv2 = mmap(NULL, sizeof(struct timespec), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, 0, 0);
 
@@ -67,6 +67,8 @@ int fcntl_lock(long *sec, long *nsec)
                 exit(1);
             }
         }
+
+        exit(0);
     }
     else
     {
@@ -93,12 +95,116 @@ int fcntl_lock(long *sec, long *nsec)
     return 0;
 }
 
+int pipe_locking(char *path, long *sec, long *nsec) // signal
+{
+    int fd = open(path, O_RDONLY);
+    struct timespec *tv  = mmap(NULL, sizeof(struct timespec), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, 0, 0);
+    struct timespec *tv2 = mmap(NULL, sizeof(struct timespec), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, 0, 0);
+    int pfd[2];
+    if (pipe(pfd) == -1)
+    {
+        perror("Error: pipe");
+        exit(1);
+    }
+
+    if(!fork()) // child process
+    {
+        char c;
+
+        clock_gettime(CLOCK_REALTIME, tv);
+        clock_settime(CLOCK_REALTIME, tv); // start time measure
+
+        for (size_t i = 0; i < 1000000; i++)
+        {
+            c = 'L';                       // lock file
+            if (write(pfd[1], &c, 1) == -1)
+            {
+                perror("Error: write");
+                exit(1);
+            }
+            c = 'O';                       // open file
+            if (write(pfd[1], &c, 1) == -1)
+            {
+                perror("Error: write");
+                exit(1);
+            }
+        }
+
+        if (write(pfd[1], "C", 1) == -1)  // send close signal to parent
+        {
+            perror("Error: write");
+            exit(1);
+        }
+
+        exit(0);
+    }
+    else // parent process
+    {
+        char c, cc;
+        while(1)
+        {
+            if (read(pfd[0], &c, 1) == -1)
+            {
+                perror("Error: read");
+                exit(1);
+            }
+            
+            if (c == 'C')   // task is finished
+            {
+                break;
+            }
+            if (c == 'O')   // file is open
+            {
+                if (read(fd, &cc, 1) == -1)
+                {
+                    perror("Error: read");
+                    exit(1);
+                }
+                if (lseek(fd, 0, SEEK_SET) == -1)
+                {
+                    perror("Error: lseek");
+                    exit(1);
+                }
+            }
+            if (c == 'L')   // file is locked
+            {
+                continue;
+            }
+        }
+
+        clock_gettime(CLOCK_REALTIME, tv2);
+        clock_settime(CLOCK_REALTIME, tv2); // end time measure
+
+        if (tv->tv_nsec > tv2->tv_nsec)
+        {
+            *sec += ((long)tv2->tv_sec-(long)tv->tv_sec) - 1;
+            *nsec += 999999999-(long)tv->tv_nsec+(long)tv2->tv_nsec;
+        }
+        else
+        {
+            *sec += (long)tv2->tv_sec-(long)tv->tv_sec;
+            *nsec += (long)tv2->tv_nsec-(long)tv->tv_nsec;
+        }
+        
+        close(fd);
+        close(pfd[0]);
+        close(pfd[1]);
+        munmap(tv,  sizeof(struct timespec));
+        munmap(tv2, sizeof(struct timespec));
+    }
+
+    return 0;
+}
+
 int main()
 {
-    long sec = 0, nsec = 0;
+    long sec_signal = 0, nsec_signal = 0;
+    long sec_lock = 0, nsec_lock = 0;
     generate_file();
-    fcntl_lock(&sec, &nsec);
-    printf("Wake a task using signal - %ld.%ld\n", sec, nsec);
+    fcntl_lock("file.txt", &sec_lock, &nsec_lock);
+    pipe_locking("file.txt", &sec_signal, &nsec_signal);
+    printf("Wake a task using signal\t- %ld.%ld\n", sec_signal, nsec_signal);
+    printf("Wake a task using lock\t\t- %ld.%ld\n", sec_lock, nsec_lock);
     
     return 0;
 }
