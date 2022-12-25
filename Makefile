@@ -4,9 +4,8 @@ FLAGS = -Wall -Werror -g
 
 all: latency
 
-# run:
-# 	./benchmark
-# 	rm socket clisocket servsocket
+run:
+	./latency
 
 latency: latency.o
 	$(CC) latency.o $(FLAGS) -lpthread -o latency

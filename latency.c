@@ -12,7 +12,7 @@
 
 struct args
 {
-    int fd; int *count; pthread_mutex_t *lock;
+    int fd; int *count; pthread_mutex_t *lock; pthread_cond_t *cond;
 };
 
 int generate_file()
@@ -323,6 +323,104 @@ int mutex_locking(char *path, long *sec, long *nsec) // lock
     return 0;
 }
 
+void* read_data_thread_cond(void *a)
+{
+    char c;
+    while (1)
+    {   
+        if (*(((struct args*)a)->count) >= 1000000)
+        {
+            break;
+        }
+
+        pthread_mutex_lock(((struct args*)a)->lock);
+        pthread_cond_wait(((struct args*)a)->cond, ((struct args*)a)->lock);
+
+        if (read(((struct args*)a)->fd, &c, 1) == -1)
+        {
+            perror("Error: read");
+            exit(1);
+        }
+        if (lseek(((struct args*)a)->fd, 0, SEEK_SET) == -1)
+        {
+            perror("Error: lseek");
+            exit(1);
+        }
+
+        pthread_mutex_unlock(((struct args*)a)->lock);
+    }
+    return NULL;
+}
+
+void* lock_data_thread_cond(void *a)
+{
+    while (*(((struct args*)a)->count) < 1000000)
+    {
+        pthread_mutex_lock(((struct args*)a)->lock);
+        *(((struct args*)a)->count) += 1;
+        pthread_mutex_unlock(((struct args*)a)->lock);
+        
+        pthread_cond_signal(((struct args*)a)->cond);
+    }
+    return NULL;
+}
+
+int cond_locking(char *path, long *sec, long *nsec) // signal
+{
+    struct args a;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    int fd = open(path, O_RDONLY);
+    struct timespec tv, tv2;
+    pthread_t thread1, thread2;
+    int count = 0;
+    
+    a.fd = fd;
+    a.count = &count;
+    a.lock = &lock;
+    a.cond = &cond;
+
+    if (pthread_mutex_init(&lock, NULL) != 0) // init lock
+    {
+        printf("mutex init has failed\n");
+        exit(1);
+    }
+    if (pthread_cond_init(&cond, NULL) != 0) // init cond
+    {
+        printf("cond init has failed\n");
+        exit(1);
+    }
+
+    clock_gettime(CLOCK_REALTIME, &tv);
+    clock_settime(CLOCK_REALTIME, &tv); // start time measure
+
+    pthread_create(&thread1, NULL, &read_data_thread_cond, &a); /* create  */
+    pthread_create(&thread2, NULL, &lock_data_thread_cond, &a); /* threads */
+
+    pthread_join(thread1, NULL); /* wait for */
+    pthread_join(thread2, NULL); /* threads  */
+
+    pthread_mutex_destroy(&lock); // destroy lock
+    pthread_cond_destroy(&cond);  // destroy cond
+
+    clock_gettime(CLOCK_REALTIME, &tv2);
+    clock_settime(CLOCK_REALTIME, &tv2); // end time measure
+
+    if (tv.tv_nsec > tv2.tv_nsec)
+    {
+        *sec += ((long)tv2.tv_sec-(long)tv.tv_sec) - 1;
+        *nsec += 999999999-(long)tv.tv_nsec+(long)tv2.tv_nsec;
+    }
+    else
+    {
+        *sec += (long)tv2.tv_sec-(long)tv.tv_sec;
+        *nsec += (long)tv2.tv_nsec-(long)tv.tv_nsec;
+    }
+    
+    close(fd);
+    return 0;
+}
+
 int main()
 {
     long sec_signal = 0, nsec_signal = 0;
@@ -331,9 +429,10 @@ int main()
     fcntl_locking("file.txt", &sec_lock, &nsec_lock);
     pipe_locking("file.txt", &sec_signal, &nsec_signal);
     mutex_locking("file.txt", &sec_lock, &nsec_lock);
+    cond_locking("file.txt", &sec_signal, &nsec_signal);
     
-    printf("Wake a task using signal\t- %ld.%ld\n", sec_signal, nsec_signal);
-    printf("Wake a task using lock\t\t- %ld.%ld\n", sec_lock, nsec_lock);
+    printf("Wake a task using signal\t- %ld.%ld seconds\n", sec_signal/2, nsec_signal/2);
+    printf("Wake a task using lock\t\t- %ld.%ld seconds\n", sec_lock/2, nsec_lock/2);
     
     return 0;
 }
