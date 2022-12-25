@@ -32,6 +32,8 @@ int fcntl_lock(char *path, long *sec, long *nsec) // lock
     int fd = open(path, O_RDONLY);
     struct timespec *tv  = mmap(NULL, sizeof(struct timespec), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, 0, 0);
     struct timespec *tv2 = mmap(NULL, sizeof(struct timespec), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, 0, 0);
+    bool *finished = mmap(NULL, sizeof(bool), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, 0, 0);
+    *finished = false;
 
     if (!fork()) // child process
     {
@@ -67,12 +69,46 @@ int fcntl_lock(char *path, long *sec, long *nsec) // lock
                 exit(1);
             }
         }
-
+        *finished = true;
         exit(0);
     }
     else
     {
-        wait(NULL);
+        char c;
+        struct flock lock;
+        lock.l_start   = 0;
+        lock.l_whence  = SEEK_SET;
+        lock.l_len     = 0;
+
+        while(!(*finished))
+        {
+            
+            lock.l_type = F_WRLCK; // set default lock type to read
+        
+            if (fcntl(fd, F_GETLK, &lock) == -1)
+            {
+                perror("Error: fcntl F_GETLK");
+                exit(1);
+            }
+
+            if (lock.l_type == F_RDLCK) // file is read-locked
+            {
+                continue;
+            }
+            else                        // file is not locked
+            {
+                if (read(fd, &c, 1) == -1)
+                {
+                    perror("Error: read");
+                    exit(1);
+                }
+                if (lseek(fd, 0, SEEK_SET) == -1)
+                {
+                    perror("Error: lseek");
+                    exit(1);
+                }
+            }
+        }
         
         clock_gettime(CLOCK_REALTIME, tv2);
         clock_settime(CLOCK_REALTIME, tv2); // end time measure
@@ -91,6 +127,7 @@ int fcntl_lock(char *path, long *sec, long *nsec) // lock
         close(fd);
         munmap(tv,  sizeof(struct timespec));
         munmap(tv2, sizeof(struct timespec));
+        munmap(finished, sizeof(bool));
     }
     return 0;
 }
