@@ -249,13 +249,13 @@ void* read_data_thread(void *a)
             break;
         }
 
-        if (read(((struct args*)a)->fd, &c, 1) == -1)
+        if (read(((struct args*)a)->fd, &c, 1) == -1) // read char from file
         {
             perror("Error: read");
             exit(1);
         }
 
-        if (lseek(((struct args*)a)->fd, 0, SEEK_SET) == -1)
+        if (lseek(((struct args*)a)->fd, 0, SEEK_SET) == -1) // return to beginning of file
         {
             perror("Error: lseek");
             exit(1);
@@ -268,8 +268,8 @@ void* lock_data_thread(void *a)
 {
     while (*(((struct args*)a)->count) < 1000000)
     {
-        pthread_mutex_lock(((struct args*)a)->lock);
-        *(((struct args*)a)->count) += 1;
+        pthread_mutex_lock(((struct args*)a)->lock);    /* lock and unlock   */
+        *(((struct args*)a)->count) += 1;               /* the other threads */
         pthread_mutex_unlock(((struct args*)a)->lock);
     }
     return NULL;
@@ -334,7 +334,7 @@ void* read_data_thread_cond(void *a)
         }
 
         pthread_mutex_lock(((struct args*)a)->lock);
-        pthread_cond_wait(((struct args*)a)->cond, ((struct args*)a)->lock);
+        pthread_cond_wait(((struct args*)a)->cond, ((struct args*)a)->lock); // wait for signal cond
 
         if (read(((struct args*)a)->fd, &c, 1) == -1)
         {
@@ -347,7 +347,7 @@ void* read_data_thread_cond(void *a)
             exit(1);
         }
 
-        pthread_mutex_unlock(((struct args*)a)->lock);
+        pthread_mutex_unlock(((struct args*)a)->lock); // unlock
     }
     return NULL;
 }
@@ -360,7 +360,7 @@ void* lock_data_thread_cond(void *a)
         *(((struct args*)a)->count) += 1;
         pthread_mutex_unlock(((struct args*)a)->lock);
         
-        pthread_cond_signal(((struct args*)a)->cond);
+        pthread_cond_signal(((struct args*)a)->cond); // signal for other thread to wake up
     }
     return NULL;
 }
